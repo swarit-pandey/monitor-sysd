@@ -12,16 +12,17 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-type monitorProcessMetrics struct {
-	Pid          uint32
-	Tgid         uint32
-	CpuNs        uint64
+type monitorCpuMetrics struct {
+	Tgid        uint32
+	_           [4]byte
+	CpuNs       uint64
+	LastSchedNs uint64
+	Comm        [16]int8
+}
+
+type monitorMemMetrics struct {
 	RssBytes     uint64
 	VmSize       uint64
-	StackSize    uint64
-	ThreadCount  uint32
-	_            [4]byte
-	StartTimeNs  uint64
 	LastUpdateNs uint64
 	CgroupId     uint32
 	Comm         [16]int8
@@ -70,26 +71,18 @@ type monitorSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type monitorProgramSpecs struct {
-	CollectCpuMetrics        *ebpf.ProgramSpec `ebpf:"collect_cpu_metrics"`
-	CollectMemoryMetrics     *ebpf.ProgramSpec `ebpf:"collect_memory_metrics"`
-	KprobeAccountPageDirtied *ebpf.ProgramSpec `ebpf:"kprobe_account_page_dirtied"`
-	TraceMmPageAlloc         *ebpf.ProgramSpec `ebpf:"trace_mm_page_alloc"`
-	TraceMmPageFree          *ebpf.ProgramSpec `ebpf:"trace_mm_page_free"`
-	TraceProcessExec         *ebpf.ProgramSpec `ebpf:"trace_process_exec"`
-	TraceProcessExit         *ebpf.ProgramSpec `ebpf:"trace_process_exit"`
-	TraceProcessFork         *ebpf.ProgramSpec `ebpf:"trace_process_fork"`
-	TraceRssStat             *ebpf.ProgramSpec `ebpf:"trace_rss_stat"`
-	TraceSchedSwitch         *ebpf.ProgramSpec `ebpf:"trace_sched_switch"`
+	HandleRssStat     *ebpf.ProgramSpec `ebpf:"handle_rss_stat"`
+	HandleSchedSwitch *ebpf.ProgramSpec `ebpf:"handle_sched_switch"`
+	SyncMmStruct      *ebpf.ProgramSpec `ebpf:"sync_mm_struct"`
 }
 
 // monitorMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type monitorMapSpecs struct {
-	Events            *ebpf.MapSpec `ebpf:"events"`
-	ProcessMetricsMap *ebpf.MapSpec `ebpf:"process_metrics_map"`
-	ProcessStartTimes *ebpf.MapSpec `ebpf:"process_start_times"`
-	ThreadCountMap    *ebpf.MapSpec `ebpf:"thread_count_map"`
+	CpuMap *ebpf.MapSpec `ebpf:"cpu_map"`
+	Events *ebpf.MapSpec `ebpf:"events"`
+	MemMap *ebpf.MapSpec `ebpf:"mem_map"`
 }
 
 // monitorVariableSpecs contains global variables before they are loaded into the kernel.
@@ -118,18 +111,16 @@ func (o *monitorObjects) Close() error {
 //
 // It can be passed to loadMonitorObjects or ebpf.CollectionSpec.LoadAndAssign.
 type monitorMaps struct {
-	Events            *ebpf.Map `ebpf:"events"`
-	ProcessMetricsMap *ebpf.Map `ebpf:"process_metrics_map"`
-	ProcessStartTimes *ebpf.Map `ebpf:"process_start_times"`
-	ThreadCountMap    *ebpf.Map `ebpf:"thread_count_map"`
+	CpuMap *ebpf.Map `ebpf:"cpu_map"`
+	Events *ebpf.Map `ebpf:"events"`
+	MemMap *ebpf.Map `ebpf:"mem_map"`
 }
 
 func (m *monitorMaps) Close() error {
 	return _MonitorClose(
+		m.CpuMap,
 		m.Events,
-		m.ProcessMetricsMap,
-		m.ProcessStartTimes,
-		m.ThreadCountMap,
+		m.MemMap,
 	)
 }
 
@@ -143,30 +134,16 @@ type monitorVariables struct {
 //
 // It can be passed to loadMonitorObjects or ebpf.CollectionSpec.LoadAndAssign.
 type monitorPrograms struct {
-	CollectCpuMetrics        *ebpf.Program `ebpf:"collect_cpu_metrics"`
-	CollectMemoryMetrics     *ebpf.Program `ebpf:"collect_memory_metrics"`
-	KprobeAccountPageDirtied *ebpf.Program `ebpf:"kprobe_account_page_dirtied"`
-	TraceMmPageAlloc         *ebpf.Program `ebpf:"trace_mm_page_alloc"`
-	TraceMmPageFree          *ebpf.Program `ebpf:"trace_mm_page_free"`
-	TraceProcessExec         *ebpf.Program `ebpf:"trace_process_exec"`
-	TraceProcessExit         *ebpf.Program `ebpf:"trace_process_exit"`
-	TraceProcessFork         *ebpf.Program `ebpf:"trace_process_fork"`
-	TraceRssStat             *ebpf.Program `ebpf:"trace_rss_stat"`
-	TraceSchedSwitch         *ebpf.Program `ebpf:"trace_sched_switch"`
+	HandleRssStat     *ebpf.Program `ebpf:"handle_rss_stat"`
+	HandleSchedSwitch *ebpf.Program `ebpf:"handle_sched_switch"`
+	SyncMmStruct      *ebpf.Program `ebpf:"sync_mm_struct"`
 }
 
 func (p *monitorPrograms) Close() error {
 	return _MonitorClose(
-		p.CollectCpuMetrics,
-		p.CollectMemoryMetrics,
-		p.KprobeAccountPageDirtied,
-		p.TraceMmPageAlloc,
-		p.TraceMmPageFree,
-		p.TraceProcessExec,
-		p.TraceProcessExit,
-		p.TraceProcessFork,
-		p.TraceRssStat,
-		p.TraceSchedSwitch,
+		p.HandleRssStat,
+		p.HandleSchedSwitch,
+		p.SyncMmStruct,
 	)
 }
 
